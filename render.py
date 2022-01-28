@@ -22,22 +22,22 @@ points = np.array([
 
 faces = np.array([
     [0, 1, 2],
-    # [0, 2, 3],
+    [0, 2, 3],
 
-    # [4, 5, 6],
-    # [4, 6, 7],
+    [4, 5, 6],
+    [4, 6, 7],
 
-    # [0, 3, 7],
-    # [0, 7, 4],
+    [0, 3, 7],
+    [0, 7, 4],
 
-    # [1, 2, 6],
-    # [1, 6, 5],
+    [1, 2, 6],
+    [1, 6, 5],
 
-    # [0, 1, 5],
-    # [0, 5, 4],
+    [0, 1, 5],
+    [0, 5, 4],
 
     [3, 2, 6],
-    # [3, 6, 7],
+    [3, 6, 7],
 ])
 
 
@@ -50,23 +50,34 @@ def get_projections(proj, cam, zplane):
     projection = camxy*alphas + proj[:, :2]*(1-alphas)
     return projection
 
-def render_points(proj, points3d, zplane, cam, faces=[], img_size=(500, 500, 3), colors=[]):
-    print(proj)
-    print(points3d)
+def render_points(
+    proj, 
+    points3d, 
+    zplane, 
+    cam, 
+    faces=[], 
+    img_size=(500, 500, 3), 
+    colors=[],
+    light_vector = np.array([1, 1, 1]),
+    light_point = np.array([0, 0, 0]),
+    ):
+
     img = np.zeros(img_size)
     zbuff = np.zeros((img.shape[0], img.shape[1])) + float('inf')
-    center = np.array([img.shape[0]//2, img.shape[1]//2])
-    for point in proj:
-        # point = point + center
-        img = cv2.circle(img, tuple(point.astype('int')), 4, (255, 255, 255))
+    # for point in proj:
+    #     img = cv2.circle(img, tuple(point.astype('int')), 2, (255, 255, 255))
 
-    color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-    for face_point_idxs, color2 in zip(faces, colors):
+    for face_point_idxs, color in zip(faces, colors):
         face_proj = proj[face_point_idxs].astype('int')
         face3d    = points3d[face_point_idxs]
-        # draw a triangle
-        # face_proj += center
+        normal, d = get_plane_equation(face3d)
+        brightness = np.dot(normal, light_vector)/np.linalg.norm(normal)/np.linalg.norm(light_vector)
+        if ((np.dot(normal, light_point)-d)*(np.dot(normal, cam)-d) < 0):
+            brightness = 1
+        color = (color*brightness).astype('uint8')
+
         zdraw_triangle(img, zbuff, face_proj, color, face3d, zplane, cam)
+
     return img, zbuff
 
 def get_line_equation(points):
@@ -86,18 +97,17 @@ def zero_diff(x, eps=1e-8):
     return eps if x==0 else x
 
 def zdraw_triangle(img, zbuff, vertices, color, points3d, zplane, cam):
-    isorted_vertices = np.flip(np.sort(vertices), axis=0)
-    isorted_vertices = vertices[vertices[:,0].argsort()]
+    vertices = vertices[vertices[:,0].argsort()]
     normal, d = get_plane_equation(points3d)
     xpos = lambda k, l, y:int((y-l)/zero_diff(k))
     xposin=lambda k, l, y: max(0, min(img.shape[1]-1, xpos(k, l, y) ))
 
     k1, l1 = get_line_equation([vertices[0], vertices[2]])
     k2, l2 = get_line_equation([vertices[0], vertices[1]])
-    if (xpos(k1, l1, vertices[0][0]+100) > xpos(k2, l2, vertices[0][0]+100)):
+    if (xpos(k1, l1, vertices[0][0]+1000) > xpos(k2, l2, vertices[0][0]+1000)):
         k1, l1, k2, l2 = k2, l2, k1, l1
 
-    for i in range(max(0, isorted_vertices[0][0]), isorted_vertices[1][0]):
+    for i in range(max(0, vertices[0][0]), min(vertices[1][0], img.shape[0])):
         for j in range(xposin(k1, l1, i), xposin(k2, l2, i)+1):
             alpha = d / ((np.array([i, j, zplane]) - cam) @ normal)
             z = alpha * (zplane - cam[-1])
@@ -105,11 +115,12 @@ def zdraw_triangle(img, zbuff, vertices, color, points3d, zplane, cam):
                 zbuff[i][j] = z
                 img[i][j] = color
 
+    k1, l1 = get_line_equation([vertices[0], vertices[2]])
     k2, l2 = get_line_equation([vertices[1], vertices[2]])
-    if (xpos(k1, l1, vertices[2][0]-100) < xpos(k2, l2, vertices[2][0]-100)):
+    if (xpos(k1, l1, vertices[2][0]-1000) > xpos(k2, l2, vertices[2][0]-1000)):
         k1, l1, k2, l2 = k2, l2, k1, l1
 
-    for i in range(max(0, isorted_vertices[1][0]), isorted_vertices[2][0]):
+    for i in range(max(0, vertices[1][0]), min(vertices[2][0], img.shape[0])):
         for j in range(xposin(k1, l1, i), xposin(k2, l2, i)+1):
             alpha = d / ((np.array([i, j, zplane]) - cam) @ normal)
             z = alpha * (zplane - cam[-1])
@@ -138,25 +149,33 @@ def rotate(points, alphax, alphay, alphaz):
     return points @ rotmat
 
 
-face_colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for i in range(len(faces))]
-print(face_colors)
-for i in range(1):
-    # points = rotate(points, 0, 0.002, 0.002)
+face_colors = []
+light_vector = np.array([1, 1, 1])
+light_point = np.array([0, 0, 0])
+for i in range(len(faces)//2):
+    color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+    face_colors.append(color)
+    face_colors.append(color)
+face_colors = np.array(face_colors)
+
+for i in range(1000):
+    points = rotate(points, 0, 0.12, 0.12)
     proj = get_projections(points, cam, zplane)
-    img, zbuff = render_points(proj, points, zplane, cam, faces, colors=face_colors)
-    # print(zbuff)
+    img, zbuff = render_points(proj, points, zplane, cam, faces, 
+        colors=face_colors, 
+        img_size=(500, 500, 3), 
+        light_vector=light_vector,
+        light_point = light_point
+        )
 
     minv = np.min(zbuff)
-    print(np.max(zbuff), np.min(zbuff))
     zbuff = np.nan_to_num(zbuff, posinf=minv)
     maxv = np.max(zbuff)
     zbuff = ((zbuff-minv)/(maxv-minv+1e-8)*255).astype('uint8')
-    print(minv, maxv, np.max(zbuff), np.min(zbuff))
-    print(zbuff)
-    print(minv, maxv, np.max(zbuff), np.min(zbuff))
-    cv2.imshow('main', img)
+    cv2.imshow('main', img.astype('uint8'))
     cv2.imshow('zbuff', zbuff)
-    if cv2.waitKey(10) == ord('q'):
+    if cv2.waitKey(1) == ord('q'):
         break
+
 cv2.waitKey(0)
 cv2.destroyAllWindows()
