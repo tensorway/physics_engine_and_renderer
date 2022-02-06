@@ -4,18 +4,20 @@ import random
 def nonzero(x, eps=1e-8):
     return eps if x==0 else x
 
-def get_cube(iwidth=100, jwidth=100, zwidth=100):
+def get_cube(xwidth=100, ywidth=100, zwidth=100, xcenter=0, ycenter=0, zcenter=0):
+    xwidth, ywidth, zwidth = xwidth/2, ywidth/2, zwidth/2
     points = np.array([
-        [-iwidth, -jwidth, -zwidth],
-        [iwidth, -jwidth, -zwidth],
-        [iwidth, jwidth, -zwidth],
-        [-iwidth, jwidth, -zwidth],
+        [-xwidth, -ywidth, -zwidth],
+        [xwidth, -ywidth, -zwidth],
+        [xwidth, ywidth, -zwidth],
+        [-xwidth, ywidth, -zwidth],
 
-        [-iwidth, -jwidth, zwidth],
-        [iwidth, -jwidth, zwidth],
-        [iwidth, jwidth, zwidth],
-        [-iwidth, jwidth, zwidth],
+        [-xwidth, -ywidth, zwidth],
+        [xwidth, -ywidth, zwidth],
+        [xwidth, ywidth, zwidth],
+        [-xwidth, ywidth, zwidth],
     ])
+    points = points + np.array([xcenter, ycenter, zcenter])
 
     faces = np.array([
         [0, 1, 2],
@@ -38,6 +40,21 @@ def get_cube(iwidth=100, jwidth=100, zwidth=100):
     ])
 
     return points, faces
+
+def get_springy_cube(xwidth=100, ywidth=100, zwidth=100, xcenter=0, ycenter=0, zcenter=0):
+    springs = np.array([
+        [1, 3, 4],
+        [0, 2, 5],
+        [1, 3, 6],
+        [0, 2, 7],
+
+        [0, 5, 7],
+        [1, 4, 6],
+        [5, 2, 7],
+        [3, 4, 6]
+    ])
+    points, faces = get_cube(xwidth, ywidth, zwidth, xcenter, ycenter, zcenter)
+    return points, faces, springs
 
 def load_points_and_faces(fname, everyith = 1):
     '''
@@ -71,7 +88,6 @@ def gen_random_face_colors(faces, groups=2):
     face_colors = []
     for _ in range(len(faces)//groups):
         color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-        color = (150, 150, 150)
         for _ in range(groups):
             face_colors.append(color)
     return np.array(face_colors)

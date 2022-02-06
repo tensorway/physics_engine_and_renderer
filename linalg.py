@@ -15,6 +15,15 @@ def get_plane_equation(points):
     d = a @ normal
     return normal, d
 
+def normalize(v):
+    norm = np.linalg.norm(v)
+    if norm == 0: 
+       return v
+    return v / norm
+
+def signed_plane_point_distance(normal, d, point):
+    return (np.dot(normal, point)-d)/np.linalg.norm(normal)
+
 def rotate3d(points, alphax, alphay, alphaz):
     rx = np.array([
         [1, 0, 0],
