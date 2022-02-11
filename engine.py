@@ -1,49 +1,18 @@
-import numpy as np
 import cv2
-from sympy import PolynomialDivisionFailed
-from linalg import get_line_equation, get_plane_equation, rotate3d, signed_plane_point_distance, normalize
-from utils import nonzero, get_cube, load_points_and_faces, colorize_faces, gen_random_face_colors, get_springy_cube
-from render import Renderer
+from matplotlib.pyplot import spring
+import tqdm
 import math
+import numpy as np
+from linalg import get_line_equation, get_plane_equation, rotate3d, signed_plane_point_distance, normalize
+from utils import load_points_and_faces_and_springs, imglist2gif, get_cube, load_points_and_faces, colorize_faces, gen_random_face_colors, get_springy_cube
+from render import Renderer
 
 
 
-def plane_point_collider(face3d, point, collide_dist):
-    normal_vec, d = get_plane_equation(face3d)
-    signed_dist = signed_plane_point_distance(normal_vec, d, point)
-    
-    if abs(signed_dist) < collide_dist:
-        '''
-        if points of the triangle are a, b, c and point thet we are cheching is p:
-            if A = [ab, ac] a matrix of vectors ab and ac and 
-                B = [p] matrix out of a point it
-            use least squres to find the solution to A@coeff = B
-            if the coefficients that are received are both in [0, 1] and their
-                sum is <= 1 then the point is in the triangle
-        '''
-        a1, a2, a3 = ab = face3d[1] - face3d[0]
-        b1, b2, b3 = ac = face3d[2] - face3d[0]
-        t1, t2, t3 = target = point - signed_dist*normalize(normal_vec) - face3d[0]
 
-        alpha = (t1*b2-t2*b1) / nonzero(a1*b2 - a2*b1)
-        beta = (t1 - alpha*a1) / nonzero(b1)
-
-        # a = (face3d - np.expand_dims(face3d[0], axis=1))[1:].transpose()
-        # b = np.expand_dims(point - face3d[0], axis=1)
-        # coeffs = np.linalg.lstsq(a, b)[0]
-        # alpha, beta = coeffs[0][0], coeffs[1][0]
-        if 0<=alpha<= 1 and 0<=beta<=1 and alpha+beta<=1:
-            return True, normalize(signed_dist*normal_vec)
-    return False, normalize(signed_dist*normal_vec)
     
 
-
-
-
-if '__main__' == __name__:
-
-    # static_points, static_faces = get_cube(xwidth=1000, ywidth=10, zwidth=1000, xcenter=900, ycenter=-1000, zcenter=2000)
-    # static_points = rotate3d(static_points, 0, 0, 0.15)
+def create_simple_staged_world():
     static_points0, static_faces0 = get_cube(xwidth=1000, ywidth=50, zwidth=1000, xcenter=900, ycenter=-300, zcenter=2000)
     static_points0 = rotate3d(static_points0, 0, 0, 0.50)
     static_points1, static_faces1 = get_cube(xwidth=2000, ywidth=50, zwidth=1000, xcenter=100, ycenter=-100, zcenter=2000)
@@ -57,46 +26,37 @@ if '__main__' == __name__:
     static_faces3 += 3*len(static_points0)
     static_points = np.concatenate((static_points0, static_points1, static_points2, static_points3), axis=0)
     static_faces  = np.concatenate((static_faces0, static_faces1, static_faces2, static_faces3), axis=0)
-
-    # static_points = np.concatenate((static_points0, static_points1), axis=0)
-    # static_faces  = np.concatenate((static_faces0, static_faces1), axis=0)
-
-    # static_points, static_faces = load_points_and_faces('models/tough_easy.obj')
-    # static_points = static_points*np.array([[6, 6, 10]])
-    # static_points += np.array([[250, -500, 300]])
-    
-    # face_colors = colorize_faces(static_faces, color=(100, 100, 100))
-    # static_points = np.array([[0, 1, 1]])
     face_colors = gen_random_face_colors(static_faces, groups=2*6)
+    return static_points, static_faces, face_colors
+
+def ball_falling_over_static_stairs():
     renderer = Renderer(
         light_vector = np.array([-25, -25, 30]),
         light_point = np.array([250, 0, -90]),
         cam=np.array([100, 250, -300]),
         image_size=(500, 500, 3)
-        
     )
 
+    static_points, static_faces, face_colors = create_simple_staged_world()
     img_static, zbuff_static = renderer.render_points(static_points, static_faces, face_colors)
 
-    cube_dist = 100
-    springk = 0.000001
-    spring_damp = 2000
-    point_mass = 1
-    points, faces, springs = get_springy_cube(xwidth=cube_dist, ywidth=cube_dist, zwidth=cube_dist, xcenter=800, ycenter=190, zcenter=2000)
+    points, faces, springs = load_points_and_faces_and_springs('models/ico.obj')
     points = points.astype('float32')
-    face_colors = gen_random_face_colors(faces, groups=2*6)
-    # points = np.array([
-    #     [800, 0.0, 2000],
-    # ])
-    velocity = np.zeros_like(points)
-    acceleration = np.zeros_like(points)
-    dt = 0.03
-    ball_radius = 2
-    bouncyness = 0.8
-    frames = []
+    points *= 150
+    points = points + np.array([[800, 500, 2000]])
+    face_colors = colorize_faces(faces, color=(255, 0, 0))
 
-    import tqdm
-    for i in tqdm.tqdm(range(1000*20)):
+    referent_spring_length = math.sqrt(((points[0]-points[1])**2).sum())
+    engine = Engine(
+        static_points,
+        static_faces,
+        points,
+        faces,
+        springs,
+        referent_spring_length=referent_spring_length
+    )
+    frames = []
+    for i in tqdm.tqdm(range(1000)):
         img = img_static + 0
         zbuff = zbuff_static + 0
 
@@ -104,10 +64,62 @@ if '__main__' == __name__:
             pointsxyz=points, 
             faces=faces,
             colors=face_colors,
-            render_points=False, 
-            point_radius=ball_radius, 
             img=img, 
             zbuff=zbuff
+            )
+        points = engine.forward()
+
+        cv2.imshow('main', img.astype('uint8'))
+        frames.append(img.astype('uint8'))
+        if cv2.waitKey(5) == ord('q'):
+            break
+
+    cv2.destroyAllWindows()
+    return frames
+
+def two_cubes_colliding():
+    renderer = Renderer(
+        light_vector = np.array([-25, -25, 30]),
+        light_point = np.array([250, 0, -90]),
+        cam=np.array([100, 250, -300]),
+        image_size=(500, 500, 3)
+    )
+
+    cube_dist = 100
+    points0, faces0, springs0 = get_springy_cube(xwidth=cube_dist, ywidth=cube_dist, zwidth=cube_dist, xcenter=500, ycenter=-800, zcenter=1000)
+    points1, faces1, springs1 = get_springy_cube(xwidth=cube_dist, ywidth=cube_dist, zwidth=cube_dist, xcenter=0, ycenter=-800, zcenter=1000)
+    faces1 += len(points0)
+    springs1 += len(points0)
+    face_colors0 = colorize_faces(faces0, color=(255, 0, 0))
+    face_colors1 = colorize_faces(faces1, color=(0, 0, 255))
+    points = np.concatenate((points0, points1), axis=0)
+    points = points.astype('float32')
+    faces = np.concatenate((faces0, faces1), axis=0)
+    springs = np.concatenate((springs0, springs1), axis=0)
+    face_colors = np.concatenate((face_colors0, face_colors1), axis=0)
+    a0 = np.zeros_like(points0) + np.array([[-0.3, 0, 0]])
+    a1 = np.zeros_like(points1) + np.array([[0.3, 0, 0]])
+    const_accel = np.concatenate((a0, a1), axis=0)
+
+    engine = Engine(
+        static_points=[],
+        static_faces=[],
+        movable_points=points,
+        movable_faces=faces,
+        movable_springs=springs,
+        referent_spring_length=cube_dist,
+        constant_acceleration=const_accel,
+    )
+
+    frames = []
+
+    for i in tqdm.tqdm(range(1000)):
+        points = engine.forward()
+        print(engine.acceleration)
+        img, _ = renderer.render_points(
+            pointsxyz=points, 
+            faces=faces,
+            colors=face_colors,
             )
 
         cv2.imshow('main', img.astype('uint8'))
@@ -115,51 +127,115 @@ if '__main__' == __name__:
         if cv2.waitKey(5) == ord('q'):
             break
 
+    cv2.destroyAllWindows()
+class Engine:
+    def __init__(
+        self, 
+        static_points, 
+        static_faces,
+        movable_points,
+        movable_faces,
+        movable_springs,
+        referent_spring_length,
+        initial_velocity=None,
+        constant_acceleration=np.array([[0, -0.7, 0]]),
+        
+        bouncyness = 0.9,
+        springk = 32,
+        spring_damp = 4000,
+        point_mass = 1,
+        ) -> None:
+
+        self.static_points = static_points
+        self.static_faces = static_faces
+
+        self.movable_points = movable_points
+        self.movable_faces = movable_faces
+        self.movable_springs = movable_springs
+        self.referent_spring_length = referent_spring_length
+        if initial_velocity:
+            self.velocity = initial_velocity
+        else:
+            self.velocity = np.zeros_like(movable_points)
+        self.acceleration = np.zeros_like(movable_points)
+        self.constant_acceleration = constant_acceleration
+
+        self.bouncyness = bouncyness
+        self.springk = springk
+        self.spring_damp = spring_damp
+        self.point_mass = point_mass
+
+    def forward(self, dt=1):
 
         # velocity step and accel step
-        # print(points)
-        # print(velocity)
-        # print(acceleration)
-        points += velocity*dt
-        velocity += acceleration*dt
-
-        acceleration = np.zeros_like(points) + np.array([[0, -0.2, 0]])
-
-        # collider step 
-        ijz = renderer.xyz2ijz(points)
-        for i in range(len(points)): 
-            for face_point_idxs in static_faces:
-                face3d    = static_points[face_point_idxs]
-                collided, normalized_signed_dist = plane_point_collider(face3d, points[i], ball_radius*5)
-                if collided:
-                    # print("hit")
-                    points[i] = points[i] + ball_radius*normalized_signed_dist
-                    indir_velocity = np.dot(velocity[i], normalized_signed_dist)* normalized_signed_dist
-                    # print(velocity[i], indir_velocity, normalized_signed_dist)
-                    velocity[i] -= (1+bouncyness) * indir_velocity
-                    # print(velocity[i], indir_velocity)
+        self.movable_points += self.velocity*dt
+        self.velocity += self.acceleration*dt
+        self.acceleration = np.zeros_like(self.movable_points) + self.constant_acceleration
 
         # force step
-        for i in range(len(points)):
-            for j in springs[i]:
-                dist = math.sqrt(((points[i] - points[j])**2).sum())
-                dx = (dist-cube_dist)
-                # print("dist=", dist, dx, "velocityji=", velocity[j], velocity[i], "spring=", (points[j]-points[i])*dx*springk, "damp=", (velocity[j]-velocity[i])*spring_damp)
-                force = (points[j]-points[i])*dx**4*springk + (velocity[j]-velocity[i])*spring_damp
-                force = np.clip(force, -10, 10)
-                acceleration[i] += force / point_mass
-                # print(force, acceleration[i], point_mass)
+        for i in range(len(self.movable_points)):
+            for j in self.movable_springs[i]:
+                dist = math.sqrt(((self.movable_points[i] - self.movable_points[j])**2).sum())
+                dx = (dist-self.referent_spring_length)
+                dv_future = (self.velocity[j]-self.velocity[i]) # - 2*(self.movable_points[j]-self.movable_points[i])*dx**1*springk )
+                force = (self.movable_points[j]-self.movable_points[i])*dx**1*self.springk + dv_future*self.spring_damp
+                force = np.clip(force, -1, 1)
+                self.acceleration[i] += force / self.point_mass
+
+        # collider static/movable step 
+        for i in range(len(self.movable_points)): 
+            for face_point_idxs in self.static_faces:
+                face3d    = self.static_points[face_point_idxs]
+                collided, normalized_signed_dist, point_on_plane = self.plane_point_collider_predictive(face3d, self.movable_points[i], self.velocity[i], dt)
+                if collided:
+                    indir_velocity = np.dot(self.velocity[i], normalized_signed_dist)* normalized_signed_dist
+                    self.velocity[i] -= (1+self.bouncyness) * indir_velocity
+                    self.movable_points[i] = point_on_plane
+
+        # collider movable/movable step 
+        for i in range(len(self.movable_points)): 
+            for face_point_idxs in self.movable_faces:
+                face3d    = self.movable_points[face_point_idxs]
+                velocities_face3d = self.velocity[face_point_idxs]
+                # face-
+                collided, normalized_signed_dist, point_on_plane = self.plane_point_collider_predictive(face3d, self.movable_points[i], self.velocity[i], dt)
+                if collided:
+                    indir_velocity = np.dot(self.velocity[i], normalized_signed_dist)* normalized_signed_dist
+                    self.velocity[i] -= (1+self.bouncyness) * indir_velocity
+                    self.movable_points[i] = point_on_plane
         
-        
-        # print(points)
         # accel calc
+        return self.movable_points + 0 
 
-    # cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    def plane_point_collider_predictive(self, face3d, point, velocity, dt):
+        normal, d = get_plane_equation(face3d)
+        signed_dist_before = signed_plane_point_distance(normal, d, point)
 
-import imageio
-print("Saving GIF file")
-with imageio.get_writer("smiling.gif", mode="I") as writer:
-    for idx, frame in enumerate(frames):
-        print("Adding frame to GIF file: ", idx + 1)
-        writer.append_data(frame)
+        pa = point_after = point + velocity*dt
+        pb = point_before = point
+        signed_dist_after = signed_plane_point_distance(normal, d, point_after)
+
+        if np.sign(signed_dist_after) != np.sign(signed_dist_before):
+            alpha = (d-np.dot(pa, normal)) / np.dot(pb-pa, normal)
+            pop = point_on_plane = alpha*point_before + (1-alpha)*point_after
+
+            a = face3d[0] - point_on_plane
+            b = face3d[1] - point_on_plane
+            c = face3d[2] - point_on_plane
+
+            def angle(vector_1, vector_2):
+                unit_vector_1 = vector_1 / np.linalg.norm(vector_1)
+                unit_vector_2 = vector_2 / np.linalg.norm(vector_2)
+                dot_product = np.dot(unit_vector_1, unit_vector_2)
+                return np.arccos(dot_product)
+
+            angle_sum = abs(angle(a, b) + angle(b, c)+ angle(c, a))
+            if 2*math.pi*0.999 <= angle_sum <= 2*math.pi*1.001:
+                return True, normalize(signed_dist_before*normal), point_on_plane
+
+        return False, normalize(signed_dist_before*normal), None
+
+
+if '__main__' == __name__:
+    frames = two_cubes_colliding()
+    # imglist2gif(frames, "ico_.gif")

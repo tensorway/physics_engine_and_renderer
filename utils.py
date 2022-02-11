@@ -1,5 +1,6 @@
 import numpy as np
 import random
+from tqdm import tqdm
 
 def nonzero(x, eps=1e-8):
     return eps if x==0 else x
@@ -82,7 +83,24 @@ def load_points_and_faces(fname, everyith = 1):
                     faces.append([a, b, c])
             except:
                 pass
-    return points, faces
+    return np.array(points), np.array(faces)
+
+def springify_triangle_faces(points, faces):
+    springs = [ [] for i in range(len(points))]
+    for face in faces:
+        for i in face:
+            for j in face:
+                if i!=j:
+                    springs[i].append(j)
+    return np.array(springs)
+
+
+def load_points_and_faces_and_springs(fname, everyith=1):
+    points, faces = load_points_and_faces(fname, everyith)
+    springs = springify_triangle_faces(points, faces)
+    return points, faces, springs
+
+
 
 def gen_random_face_colors(faces, groups=2):
     face_colors = []
@@ -97,3 +115,10 @@ def colorize_faces(faces, color=(150, 150, 150)):
     for _ in range(len(faces)):
         face_colors.append(color)
     return np.array(face_colors)
+
+def imglist2gif(frames, file_name):
+    import imageio
+    print("Saving GIF file")
+    with imageio.get_writer(file_name, mode="I") as writer:
+        for idx, frame in tqdm(enumerate(frames)):
+            writer.append_data(frame)
