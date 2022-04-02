@@ -3,8 +3,8 @@ from matplotlib.pyplot import spring
 import tqdm
 import math
 import numpy as np
-from linalg import get_line_equation, get_plane_equation, rotate3d, signed_plane_point_distance, normalize
-from utils import load_points_and_faces_and_springs, imglist2gif, get_cube, load_points_and_faces, colorize_faces, gen_random_face_colors, get_springy_cube
+from linalg import get_center_of_mass, get_line_equation, get_perpendicular_line_equation3d, get_plane_equation, point2line_vector, rotate3d, signed_plane_point_distance, normalize
+from utils import load_points_and_faces_and_springs, imglist2gif, get_cube, load_points_and_faces, colorize_faces, gen_random_face_colors, get_springy_cube, springify_body
 from render import Renderer
 
 
@@ -43,17 +43,20 @@ def ball_falling_over_static_stairs():
     points, faces, springs = load_points_and_faces_and_springs('models/ico.obj')
     points = points.astype('float32')
     points *= 150
+    springs = springify_body(points, offset=0)
     points = points + np.array([[800, 500, 2000]])
     face_colors = colorize_faces(faces, color=(255, 0, 0))
 
-    referent_spring_length = math.sqrt(((points[0]-points[1])**2).sum())
     engine = Engine(
         static_points,
         static_faces,
         points,
         faces,
         springs,
-        referent_spring_length=referent_spring_length
+        springk = 4,
+        spring_damp=4000,
+        constant_acceleration=np.array([[0, -3.9, 0]]),
+
     )
     frames = []
     for i in tqdm.tqdm(range(1000)):
@@ -86,10 +89,11 @@ def two_cubes_colliding():
     )
 
     cube_dist = 100
-    points0, faces0, springs0 = get_springy_cube(xwidth=cube_dist, ywidth=cube_dist, zwidth=cube_dist, xcenter=500, ycenter=-800, zcenter=1000)
-    points1, faces1, springs1 = get_springy_cube(xwidth=cube_dist, ywidth=cube_dist, zwidth=cube_dist, xcenter=0, ycenter=-800, zcenter=1000)
+    points0, faces0 = get_cube(xwidth=cube_dist, ywidth=cube_dist, zwidth=cube_dist, xcenter=400, ycenter=-300, zcenter=300)
+    points1, faces1 = get_cube(xwidth=cube_dist, ywidth=cube_dist, zwidth=cube_dist, xcenter=0, ycenter=-250, zcenter=300)
     faces1 += len(points0)
-    springs1 += len(points0)
+    springs0 = springify_body(points0, offset=0)
+    springs1 = springify_body(points1, offset=len(points0))
     face_colors0 = colorize_faces(faces0, color=(255, 0, 0))
     face_colors1 = colorize_faces(faces1, color=(0, 0, 255))
     points = np.concatenate((points0, points1), axis=0)
@@ -136,7 +140,6 @@ class Engine:
         movable_points,
         movable_faces,
         movable_springs,
-        referent_spring_length,
         initial_velocity=None,
         constant_acceleration=np.array([[0, -0.7, 0]]),
         
@@ -152,7 +155,6 @@ class Engine:
         self.movable_points = movable_points
         self.movable_faces = movable_faces
         self.movable_springs = movable_springs
-        self.referent_spring_length = referent_spring_length
         if initial_velocity:
             self.velocity = initial_velocity
         else:
@@ -163,7 +165,7 @@ class Engine:
         self.bouncyness = bouncyness
         self.springk = springk
         self.spring_damp = spring_damp
-        self.point_mass = point_mass
+        self.point_mass = np.zeros((len(movable_points), 0)) + point_mass
 
     def forward(self, dt=1):
 
@@ -174,46 +176,77 @@ class Engine:
 
         # force step
         for i in range(len(self.movable_points)):
-            for j in self.movable_springs[i]:
+            for j, referent_spring_length in self.movable_springs[i]:
+                j = int(j)
                 dist = math.sqrt(((self.movable_points[i] - self.movable_points[j])**2).sum())
-                dx = (dist-self.referent_spring_length)
+                dx = (dist-referent_spring_length)
                 dv_future = (self.velocity[j]-self.velocity[i]) # - 2*(self.movable_points[j]-self.movable_points[i])*dx**1*springk )
                 force = (self.movable_points[j]-self.movable_points[i])*dx**1*self.springk + dv_future*self.spring_damp
                 force = np.clip(force, -1, 1)
-                self.acceleration[i] += force / self.point_mass
+                self.acceleration[i] += force / self.point_mass[i]
 
-        # collider static/movable step 
+        # collider static_face/movable_point step 
         for i in range(len(self.movable_points)): 
             for face_point_idxs in self.static_faces:
                 face3d    = self.static_points[face_point_idxs]
-                collided, normalized_signed_dist, point_on_plane = self.plane_point_collider_predictive(face3d, self.movable_points[i], self.velocity[i], dt)
+                collided, normalized_signed_dist, point_on_plane = self.plane_point_collider_predictive(face3d, self.movable_points[i], self.velocity[i], np.zeros_like(face3d),dt)
                 if collided:
                     indir_velocity = np.dot(self.velocity[i], normalized_signed_dist)* normalized_signed_dist
                     self.velocity[i] -= (1+self.bouncyness) * indir_velocity
                     self.movable_points[i] = point_on_plane
 
-        # collider movable/movable step 
+        # collider movable_point/movable_face step 
         for i in range(len(self.movable_points)): 
             for face_point_idxs in self.movable_faces:
                 face3d    = self.movable_points[face_point_idxs]
                 velocities_face3d = self.velocity[face_point_idxs]
-                # face-
-                collided, normalized_signed_dist, point_on_plane = self.plane_point_collider_predictive(face3d, self.movable_points[i], self.velocity[i], dt)
+                collided, normalized_signed_dist, point_on_plane = self.plane_point_collider_predictive(face3d, self.movable_points[i], self.velocity[i], velocities_face3d, dt)
                 if collided:
                     indir_velocity = np.dot(self.velocity[i], normalized_signed_dist)* normalized_signed_dist
+
+                    # calculating rotation
+                    center_of_mass = get_center_of_mass(face3d)
+                    line_direction_vector, _ = get_perpendicular_line_equation3d(center_of_mass, point_on_plane, normalized_signed_dist)
+                    d0 = point2line_vector(face3d[0], line_direction_vector, center_of_mass)
+                    d1 = point2line_vector(face3d[1], line_direction_vector, center_of_mass)
+                    d2 = point2line_vector(face3d[2], line_direction_vector, center_of_mass)
+                    ds = [d0, d1, d2]
+
+                    # law of conservation of angular momentum
+                    # i have excluded vectors for simpliticy :
+                    # angular_velocity*(|d0| + |d1| + |d2|) + velocity_point_after*|dpoint| = velocity_point_before*|dpoint|
+                    angular_velocity_vector = normalize(np.cross(ds[0], line_direction_vector))
+                    mul = 1 if np.dot(angular_velocity_vector, indir_velocity)>0 else -1
+                    angular_momentum = 0
+                    masses = self.point_mass[face_point_idxs]
+                    for distance, mass in zip(ds, masses):
+                        angular_momentum += distance*mass
+                    angular_velocity_norm = mul * (2*self.bouncyness)*np.linalg.norm(indir_velocity)/angular_momentum
+                    for (point_idx, distance_vec) in enumerate(zip(ds, face_point_idxs)):
+                        self.velocity[point_idx] += angular_velocity_norm*np.norm(distance_vec)*angular_velocity_vector
+
+
+
+
+
+
                     self.velocity[i] -= (1+self.bouncyness) * indir_velocity
                     self.movable_points[i] = point_on_plane
+
+
         
         # accel calc
         return self.movable_points + 0 
 
-    def plane_point_collider_predictive(self, face3d, point, velocity, dt):
+    def plane_point_collider_predictive(self, face3d, point, velocity, face3d_velocities, dt):
         normal, d = get_plane_equation(face3d)
         signed_dist_before = signed_plane_point_distance(normal, d, point)
 
         pa = point_after = point + velocity*dt
         pb = point_before = point
-        signed_dist_after = signed_plane_point_distance(normal, d, point_after)
+        face3d_after = face3d + face3d_velocities*dt
+        normal_after, d_after = get_plane_equation(face3d_after)
+        signed_dist_after = signed_plane_point_distance(normal_after, d_after, point_after)
 
         if np.sign(signed_dist_after) != np.sign(signed_dist_before):
             alpha = (d-np.dot(pa, normal)) / np.dot(pb-pa, normal)
@@ -237,5 +270,6 @@ class Engine:
 
 
 if '__main__' == __name__:
-    frames = two_cubes_colliding()
+    # frames = two_cubes_colliding()
+    ball_falling_over_static_stairs()
     # imglist2gif(frames, "ico_.gif")

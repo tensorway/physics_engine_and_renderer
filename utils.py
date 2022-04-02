@@ -1,5 +1,6 @@
 import numpy as np
 import random
+import math
 from tqdm import tqdm
 
 def nonzero(x, eps=1e-8):
@@ -93,6 +94,19 @@ def springify_triangle_faces(points, faces):
                 if i!=j:
                     springs[i].append(j)
     return np.array(springs)
+
+def springify_body(points, offset):
+    springs = []
+    for i, point in enumerate(points):
+        row = []
+        for j, point2 in enumerate(points):
+            if i != j:
+                dist = math.sqrt(((point-point2)**2).sum())
+                row.append((j+offset, dist))
+        springs.append(row)
+    return np.array(springs)
+
+
 
 
 def load_points_and_faces_and_springs(fname, everyith=1):

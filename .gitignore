@@ -129,4 +129,7 @@ dmypy.json
 .pyre/
 
 # model files
-.obj
+*.obj
+models/*
+gifs/*
+*.gif

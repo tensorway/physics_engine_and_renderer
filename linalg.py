@@ -8,12 +8,29 @@ def get_line_equation(points):
     l = points[0][0] - k*points[0][1]
     return k, l
 
+def get_perpendicular_line_equation3d(point_on_resulting, point_not_on_resulting, normal):
+    '''
+    takes a plane and two points in it and
+    creates a line that is normal to the line 
+    connecting the two points and is in the plane
+    '''
+    ab = point_on_resulting-point_not_on_resulting
+    line_direction_vector = np.cross(ab, normal)
+    return line_direction_vector, point_on_resulting
+
+def point2line_vector(point, line_direction_vector, point_on_line):
+    ab = point_on_line-point
+    return np.dot(ab, line_direction_vector)
+
 def get_plane_equation(points):
     a, b, c = points
     ab, ac = b-a, c-a
     normal = np.cross(ab, ac)
     d = a @ normal
     return normal, d
+
+def get_center_of_mass(points):
+    return np.mean(points, axis=0)
 
 def normalize(v):
     norm = np.linalg.norm(v)
